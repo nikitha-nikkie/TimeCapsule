@@ -5,6 +5,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.UUID;
 
@@ -27,42 +29,38 @@ import com.timecapsule.backend.service.CapsuleService;
 
 @RestController
 @RequestMapping("/api/capsules")
-@CrossOrigin(origins = "http://localhost:5173")
+@CrossOrigin(origins = {
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+})
 public class CapsuleController {
 
     private final CapsuleService capsuleService;
-
-    private final Path uploadDir =
-            Paths.get("uploads").toAbsolutePath().normalize();
+    private final Path uploadDir = Paths.get("uploads").toAbsolutePath().normalize();
 
     public CapsuleController(CapsuleService capsuleService) {
         this.capsuleService = capsuleService;
     }
 
-    // CREATE capsule with optional photo
     @PostMapping(consumes = "multipart/form-data")
     public ResponseEntity<?> createCapsule(
             @RequestParam("title") String title,
             @RequestParam("message") String message,
             @RequestParam("recipientEmail") String recipientEmail,
             @RequestParam("deliveryDateTime") String deliveryDateTime,
-            @RequestParam(value = "photo", required = false)
-                    MultipartFile photo) {
+            @RequestParam(value = "photo", required = false) MultipartFile photo) {
 
         try {
             Capsule capsule = new Capsule();
             capsule.setTitle(title);
             capsule.setMessage(message);
             capsule.setRecipientEmail(recipientEmail);
-            capsule.setDeliveryDateTime(
-                    java.time.LocalDateTime.parse(deliveryDateTime)
-            );
+            capsule.setDeliveryDateTime(LocalDateTime.parse(deliveryDateTime));
 
             if (photo != null && !photo.isEmpty()) {
                 String contentType = photo.getContentType();
 
-                if (contentType == null ||
-                        !contentType.startsWith("image/")) {
+                if (contentType == null || !contentType.startsWith("image/")) {
                     return ResponseEntity.badRequest()
                             .body("Please upload an image file.");
                 }
@@ -85,8 +83,7 @@ public class CapsuleController {
                 Path destination = uploadDir.resolve(fileName).normalize();
 
                 if (!destination.startsWith(uploadDir)) {
-                    return ResponseEntity.badRequest()
-                            .body("Invalid file name.");
+                    return ResponseEntity.badRequest().body("Invalid file name.");
                 }
 
                 Files.copy(
@@ -98,22 +95,20 @@ public class CapsuleController {
                 capsule.setPhotoPath(destination.toString());
             }
 
-            return ResponseEntity.status(HttpStatus.CREATED)
-                    .body(capsuleService.createCapsule(capsule));
+            Capsule savedCapsule = capsuleService.createCapsule(capsule);
+            return ResponseEntity.status(HttpStatus.CREATED).body(savedCapsule);
 
-        } catch (IOException | java.time.format.DateTimeParseException e) {
+        } catch (IOException | DateTimeParseException e) {
             return ResponseEntity.badRequest()
                     .body("Could not create capsule. Check the details and try again.");
         }
     }
 
-    // READ ALL
     @GetMapping
     public List<Capsule> getAllCapsules() {
         return capsuleService.getAllCapsules();
     }
 
-    // READ ONE
     @GetMapping("/{id}")
     public ResponseEntity<Capsule> getCapsuleById(@PathVariable Long id) {
         return capsuleService.getCapsuleById(id)
@@ -121,7 +116,6 @@ public class CapsuleController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    // UPDATE
     @PutMapping("/{id}")
     public ResponseEntity<Capsule> updateCapsule(
             @PathVariable Long id,
@@ -135,10 +129,13 @@ public class CapsuleController {
         }
     }
 
-    // DELETE
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteCapsule(@PathVariable Long id) {
-        capsuleService.deleteCapsule(id);
-        return ResponseEntity.noContent().build();
+        try {
+            capsuleService.deleteCapsule(id);
+            return ResponseEntity.noContent().build();
+        } catch (RuntimeException e) {
+            return ResponseEntity.notFound().build();
+        }
     }
 }
